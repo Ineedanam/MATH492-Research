@@ -1,0 +1,205 @@
+---
+title: "RandomGraphAnalysis"
+author: "Yixuan Chen"
+date: "2023-05-03"
+output: pdf_document
+---
+
+#Import Hist50.csv
+```{r}
+data <- read.csv("Hist50.csv",header=F)
+ncol(data)
+nrow(data)
+updateData <- data.frame()
+for(i in 2:51){
+  updateData <- data.frame(rbind(updateData, data[1,]*data[i,]))
+}
+updateData <- updateData/100000
+```
+
+#Analysis for 1000 graphs.
+```{r}
+#PDF of different sizes of connected components
+for(i in 1:50){
+  plot(1:100, updateData[i,],xlab="size",ylab="probability", type="l")
+}
+
+plot(1:100, updateData[1,], xlab = "size", ylab = "probability", type = "l", col = "red", xlim=c(0,101))
+
+# Add the remaining lines
+for (i in 2:50) {
+  lines(1:100, updateData[i,], col = rainbow(50)[i])
+}
+
+```
+
+#Import Hist500.csv
+```{r}
+newdata <- read.csv("Hist500.csv",header=F)
+ncol(newdata)
+nrow(newdata)
+p005Data <- data.frame()
+for(i in 2:51){
+  p005Data <- data.frame(rbind(p005Data, newdata[1,]*newdata[i,]))
+}
+
+p005Data <- p005Data/10000/100
+```
+
+#Analysis for 10000 random graphs with size 1-100 and p=0 to p=0.05
+```{r}
+par(mar=c(2,1,1,1))
+par(mfrow=c(5,5))
+for(i in 1:25){
+  plot(1:100, p005Data[i,],xlab="size",ylab="probability", type="l", col="blue",ylim=c(0,0.6), main = paste("p =", (i-1)/1000))
+}
+
+par(mfrow=c(5,5))
+for(i in 26:50){
+  plot(1:100, p005Data[i,],xlab="size",ylab="probability", type="l",col="blue", ylim=c(0,0.6), main = paste("p =", (i-1)/1000))
+}
+```
+
+#Pick typical pattern of distribution shows above
+```{r}
+par(mar=c(2,1,1,1))
+par(mfrow=c(5,5))
+for(i in seq(1, 50, by=5)){
+  plot(1:100, p005Data[i,],xlab="size",ylab="probability", type="l", col="blue",ylim=c(0,0.6), main = paste("p =", (i-1)/1000))
+}
+```
+
+#Combine these distribution together
+```{r}
+plot(1:100, p005Data[1,], xlab = "size", ylab = "probability", type = "l", col = "red", xlim=c(0,101))
+# Add the remaining lines
+for (i in 2:50) {
+  lines(1:100, p005Data[i,], col = rainbow(50)[i])
+}
+```
+
+#Fit Histogram for p=0.037
+```{r}
+# Assume you have a PDF vector called 'pdf'
+pdf <- p005Data[38,]
+# Define the number of categories in the multinomial distribution
+k <- length(pdf)
+# Simulate some data from the multinomial distribution
+n <- 1000 # number of observations
+x <- rmultinom(n, size = 1, prob = pdf) # each row of x is a k-dimensional multinomial observation
+# Convert the data to a vector
+x_vec = apply(x, 2, which.max)
+x_count <- table(x_vec) # count the number of occurrences of each category
+# Plot the histogram of the data
+par(mfrow = c(1,1))
+hist(x_vec, breaks = k, prob = TRUE)
+```
+
+
+#Fit Distribution for p=0.037 with poisson, gamma, normal, geometric, lognormal
+```{r}
+library(MASS)
+library(mixtools)
+#x1_vec <- ifelse(x_vec<=90, NA, x_vec)
+x1_vec <- na.omit(x1_vec)
+mean(x1_vec)
+hist(x1_vec, breaks = 10, prob = TRUE)
+lines(density(x1_vec))
+
+# Fit various distributions to the data using MLE and calculate AIC
+fit_poisson <- fitdistr(x1_vec, "poisson")
+fit_gamma <- fitdistr(x_vec, "gamma")
+fit_normal <- fitdistr(x_vec, "normal")
+fit_geom <- fitdistr(x1_vec, "geometric")
+#fit_nbinom <- fitdistr(x1_vec, "negative binomial")
+fit_lognormal <- fitdistr(x1_vec, "lognormal")
+
+# Calculate AIC for each distribution
+aic_poisson <- AIC(fit_poisson)
+aic_geom <- AIC(fit_geom)
+#aic_nbinom <- AIC(fit_nbinom)
+aic_lognormal <- AIC(fit_lognormal)
+aic_gamma <- AIC(fit_gamma)
+aic_normal <- AIC(fit_normal)
+
+# Select the distribution with the lowest AIC
+aic_values <- c(aic_poisson, aic_geom, #aic_nbinom, 
+                aic_lognormal, aic_gamma, aic_normal)
+dist_names <- c("poisson", "geom", 
+                #"nbinom", 
+                "lognormal", "gamma", "normal")
+best_dist <- dist_names[which.min(aic_values)]
+
+# Plot the PDF of the best-fitting distribution and compare to the histogram of the data
+x_range <- seq(1, k, length.out = 100)
+pdf_values <- dpois(x_range, lambda = fit_normal$estimate) # replace with best-fitting distribution
+
+lines(x_range, pdf_values, col = "red")
+
+```
+
+#Fit Distribution for Mixed Normal Distribution
+
+```{r}
+#mixture of normal distribution
+fit <- normalmixEM(x_vec, k=2)
+cat("Means:", fit$mu, "\n")
+cat("SD:", fit$sigma, "\n")
+cat("Proportions:", fit$lambda, "\n")
+cat("Log-likelihood:", fit$loglik, "\n")
+hist(x_vec, freq=FALSE, breaks=30, col="lightgray", xlab="x1_vec", ylab="density", xlim=c(0,110), ylim=c(0,0.5))
+x <- seq(min(x_vec), max(x_vec), length.out=100)
+y1 <- dnorm(x, mean=fit$mu[1], sd=fit$sigma[1])
+y2 <- dnorm(x, mean=fit$mu[2], sd=fit$sigma[2])
+y <- fit$lambda[1]*y1 + fit$lambda[2]*y2
+lines(x, y1, col="blue", lwd=2)
+lines(x, y2, col="red", lwd=2)
+lines(x, y, col="black", lwd=2)
+legend("topleft", legend=c("Distrib 1", "Distrib 2", "Distrib 3"))
+```
+
+#Fit beta, Weibull, normal, lognormal, gamma for different p.
+#p=0.02, choose from p005Data[21,]
+#p=0.025, choose from p005Data[26,]
+#p=0.03, choose from p005Data[31,]
+#p=0.035, choose from p005Data[36,]
+#p=0.04, choose from p005Data[41,]
+```{r}
+library(ggplot2)
+library(fitdistrplus)
+library(logspline)
+#pdf <- p005Data[38,]
+pdf <- p005Data[41,]
+# Define the number of categories in the multinomial distribution
+k <- length(pdf)
+# Simulate some data from the multinomial distribution
+n <- 1000 # number of observations
+x <- rmultinom(n, size = 1, prob = pdf) # each row of x is a k-dimensional multinomial observation
+# Convert the data to a vector
+x_vec = apply(x, 2, which.max)
+x1_vec <- ifelse(x_vec<=70, NA, x_vec)
+x1_vec <- na.omit(x1_vec)
+##########################################
+
+x1_vec <- as.vector(x1_vec)
+descdist(x1_vec,discrete = FALSE)
+descdist(x1_vec,discrete = FALSE, boot=1000)
+x_ <- x1_vec/1000
+beta_ = fitdist(x_,"beta")
+max(x1_vec)
+normal_ = fitdist(x1_vec, "norm")
+weibul_ = fitdist(x1_vec, "weibull")
+gamma_ = fitdist(x1_vec, "gamma")
+
+plot(normal_)
+plot(weibul_)
+plot(gamma_)
+plot(beta_)
+
+normal_$aic
+weibul_$aic
+gamma_$aic
+beta_$aic
+```
+
+
